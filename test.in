@@ -1,0 +1,53 @@
+gm hey everyone
+#player foo %n %p %p %p %p %p %p %p
+player foo
+heal FOOO
+heal 1
+heal 1 -1  
+talk 1 tis just a flesh wound!
+heal 2 28
+heal 874 7
+heal -32 -32
+heal 1 2
+status 1
+player bar
+heal 2 3
+status 2
+talk 1 fuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+attack 1 2
+attack 1 2
+attack 1 2
+status 1
+status 2
+attack 1 2
+attack 1 2
+player baz
+talk 2 *enters the ring*
+attack 2 1
+attack 2 1
+player foo2
+attack 2 1
+talk 2 *drinks potion*
+heal 2 2
+player foo3
+talk 1 *charges*
+attack 1 2
+attack 1 2
+status 2
+player foo4
+attack 2 1
+heal 2 3
+status 2
+talk 2 *cues the music*
+monster a
+monster a/b 
+monster 2/4 
+monster 2/4 Giant Spider
+attack 1 2
+attack 2 1
+attack 2 1
+status 2
+talk 2 *feels invincible*
+monster 20/20 Emrakul
+attack 2 1
+gm that'll teach you

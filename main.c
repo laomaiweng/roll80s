@@ -46,30 +46,32 @@ void reply(const char *type, const char *fmt, ...)
 
 union thing_data {
     struct player {
-        const char *name;
+        char *name;
         int hitpoints;
         unsigned level;
         unsigned experience;
     } player;
     struct monster {
-        const char *name;
+        char *name;
         int hitpoints;
         unsigned strength;
     } monster;
-    struct treasure {
-        const char *name;
-    } treasure;
+    struct chest {
+        char *contents;
+        unsigned lock;
+    } chest;
 };
 
 struct thing {
     enum type {
         PLAYER,
         MONSTER,
-        TREASURE
+        CHEST
     } type;
     union thing_data d;
 };
 
+#define ECW_FLAG "ECW{flag}"
 static struct thing flag;
 
 static struct thing *universe[1024] = {&flag, 0};
@@ -110,7 +112,9 @@ struct thing* get_typed_thing(unsigned id, enum type type)
 void delete_thing(void *data)
 {
     size_t i;
-    for (i = 0; i < ARRAY_SIZE(universe) && universe[i] != NULL && &universe[i]->d != data; i++);
+    for (i = 0; i < ARRAY_SIZE(universe); i++)
+        if (universe[i] != NULL && &universe[i]->d == data)
+            break;
     if (i == ARRAY_SIZE(universe)) {
         reply_error("bad id");
         return;
@@ -118,6 +122,22 @@ void delete_thing(void *data)
     
     free(universe[i]);
     universe[i] = NULL;
+}
+
+#define LEVEL_CAP 99
+
+bool gain_experience(struct player *p, unsigned xp)
+{
+    if (p->level >= LEVEL_CAP)
+        return false;
+
+    p->experience += xp;
+    if (p->experience <= p->level)
+        return false;
+
+    p->experience = 0;
+    p->level += 1;
+    return true;
 }
 
 bool parse_player(char **args, struct player **player)
@@ -216,18 +236,45 @@ void cmd_monster(char *args)
     reply("id", "%zu", i);
 }
 
+void cmd_chest(char *args)
+{
+    unsigned lock;
+    int read = 0;
+    if (sscanf(args, "%u %n", &lock, &read) != 1) {
+        reply_error("bad lock strength");
+        return;
+    }
+    char *contents = &args[read];
+
+    unsigned i = reserve_thing();
+    if (i == 0)
+        return;
+    struct thing *c = calloc(1, sizeof(*c));
+    if (c == NULL) {
+        reply_error("out of memory");
+        return;
+    }
+
+    c->type = CHEST;
+    c->d.chest.contents = strdup(contents);
+    c->d.chest.lock = lock;
+    universe[i] = c;
+
+    reply_msg("there's a chest in the room");
+    reply("id", "%zu", i);
+}
+
 void cmd_attack(char *args)
 {
     struct player *p;
     unsigned monster_id;
     if (!parse_player_with_args(&args, &p, "%u", &monster_id))
         return;
-    struct thing *target = get_thing(monster_id);
-    if (target == NULL)
+    struct thing *m = get_typed_thing(monster_id, MONSTER);
+    if (m == NULL)
         return;
-    struct monster *m = &target->d.monster;
 
-    reply_msg("%A", p, m);
+    reply_msg("%A", p, &m->d.monster);
 }
 
 int printf_attack(FILE *stream, __attribute__((unused)) const struct printf_info *info, const void *const *args)
@@ -246,12 +293,9 @@ int printf_attack(FILE *stream, __attribute__((unused)) const struct printf_info
     written += fprintf(stream, "\n %s hits %s for " RED "%d" BLACK " damage", m->name, p->name, attack);
     if (m->hitpoints <= 0) {
         written += fprintf(stream, "\n %s dies!", m->name);
-        p->experience += m->strength;
-        if (p->experience > p->level) {
+        if (gain_experience(p, m->strength))
             written += fprintf(stream, "\n %s levels up", p->name);
-            p->experience = 0;
-            p->level += 1;
-        }
+        free(m->name);
         delete_thing(m);
     }
     if (p->hitpoints == 0) {
@@ -261,6 +305,7 @@ int printf_attack(FILE *stream, __attribute__((unused)) const struct printf_info
             written += fprintf(stream, "\n %s is torn to bits!", p->name);
         else
             written += fprintf(stream, "\n %s dies :(", p->name);
+        free(p->name);
         delete_thing(p);
     }
     return written;
@@ -306,6 +351,54 @@ int printf_arginfo_heal(__attribute__((unused)) const struct printf_info *info, 
 		sizes[0] = sizeof(struct player*);
 		argtypes[1] = PA_INT;
 		sizes[1] = sizeof(int);
+	}	
+    return 2;
+}
+
+void cmd_open(char *args)
+{
+    struct player *p;
+    unsigned chest_id;
+    if (!parse_player_with_args(&args, &p, "%u", &chest_id))
+        return;
+
+    struct thing *c = get_typed_thing(chest_id, CHEST);
+    if (c == NULL)
+        return;
+
+    reply_msg("%O", p, &c->d.chest);
+}
+
+int printf_open(FILE *stream, __attribute__((unused)) const struct printf_info *info, const void *const *args)
+{
+    struct player *p = *((struct player**)(args[0]));
+    struct chest *c = *((struct chest**)(args[1]));
+
+    int written = 0;
+    if (p->level >= c->lock) {
+        written += fprintf(stream, "lock picked successfully!");
+        if (p->level == c->lock && gain_experience(p, 1))
+            written += fprintf(stream, "\n %s levels up", p->name);
+        if (strlen(c->contents) > 0)
+            written += fprintf(stream, "\n %s finds %s", p->name, c->contents);
+        else
+            written += fprintf(stream, "\n the chest is empty :(");
+        if (c != &flag.d.chest) {
+            free(c->contents);
+            delete_thing(c);
+        }
+    } else
+        written += fprintf(stream, "this lock is too tough");
+    return written;
+}
+
+int printf_arginfo_open(__attribute__((unused)) const struct printf_info *info, __attribute__((unused)) size_t n, __attribute__((unused)) int *argtypes, __attribute__((unused)) int *sizes)
+{
+    if (n >= 2) {
+		argtypes[0] = PA_POINTER;
+		sizes[0] = sizeof(struct player*);
+		argtypes[1] = PA_POINTER;
+		sizes[1] = sizeof(struct chest*);
 	}	
     return 2;
 }
@@ -381,12 +474,13 @@ static const struct {
 } commands[] = {
     {"player", cmd_player},
     {"monster", cmd_monster},
+    {"chest", cmd_chest},
     {"attack", cmd_attack}, // %A
     {"heal", cmd_heal}, // %H
+    {"open", cmd_open}, // %O
     {"talk", cmd_talk}, // %T
     {"status", cmd_status}, // %S
 };
-/* TODO: action to loot a treasure */
 
 int printguard_n_specifier(FILE *stream, __attribute__((unused)) const struct printf_info *info, __attribute__((unused)) const void *const *args)
 {
@@ -395,13 +489,14 @@ int printguard_n_specifier(FILE *stream, __attribute__((unused)) const struct pr
 
 int printguard_n_specifier_info(__attribute__((unused)) const struct printf_info *info, __attribute__((unused)) size_t n, __attribute__((unused)) int *argtypes, __attribute__((unused)) int *size)
 {
-    return 1;
+    return 1; /* TODO: consume 0 args? */
 }
 
 int main(__attribute__((unused)) int argc, __attribute__((unused)) char *argv[])
 {
     if (register_printf_specifier('A', printf_attack, printf_arginfo_attack) ||
         register_printf_specifier('H', printf_heal, printf_arginfo_heal) ||
+        register_printf_specifier('O', printf_open, printf_arginfo_open) ||
         register_printf_specifier('T', printf_talk, printf_arginfo_talk) ||
         register_printf_specifier('S', printf_status, printf_arginfo_status) ||
         register_printf_specifier('n', printguard_n_specifier, printguard_n_specifier_info)) {
@@ -409,8 +504,9 @@ int main(__attribute__((unused)) int argc, __attribute__((unused)) char *argv[])
         return EXIT_FAILURE;
     }
 
-    flag.type = TREASURE;
-    flag.d.treasure.name = "flag";
+    flag.type = CHEST;
+    flag.d.chest.contents = "the flag: " ECW_FLAG;
+    flag.d.chest.lock = LEVEL_CAP + 1; /* out of reach for fair lock picking */
 
     while (!feof(stdin) && !ferror(stdin)) {
         char buf[1024];

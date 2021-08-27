@@ -13,41 +13,26 @@ status 1
 player bar
 heal 2 3
 status 2
-talk 1 fuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
-attack 1 2
-attack 1 2
-attack 1 2
-status 1
-status 2
-attack 1 2
-attack 1 2
-player baz
-talk 2 *enters the ring*
-attack 2 1
-attack 2 1
-player foo2
-attack 2 1
-talk 2 *drinks potion*
-heal 2 2
-player foo3
-talk 1 *charges*
-attack 1 2
-attack 1 2
-status 2
-player foo4
-attack 2 1
-heal 2 3
-status 2
-talk 2 *cues the music*
 monster a
 monster a/b 
 monster 2/4 
 monster 2/4 Giant Spider
-attack 1 2
-attack 2 1
-attack 2 1
+attack 1 3
+attack 1 3
+attack 1 3
+talk 2 fuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+attack 2 3
 status 2
+talk 2 *drinks healing potion*
+heal 2 3
 talk 2 *feels invincible*
 monster 20/20 Emrakul
 attack 2 1
 gm that'll teach you
+chest 1 a rusty dagger
+player baz
+open 3 2
+chest 1 worn boots
+open 3 2
+status 3
+open 3 0

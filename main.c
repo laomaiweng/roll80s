@@ -188,11 +188,6 @@ bool parse_player_with_args(char **args, struct player **player, const char *fmt
 
 void cmd_player(char *name)
 {
-    if (name == NULL || strlen(name) < 1) {
-        reply_error("bad name");
-        return;
-    }
-
     struct thing **slot;
     unsigned i = reserve_thing(&slot);
     if (i == 0)
@@ -542,16 +537,17 @@ void cmd_gm(char *msg)
 static const struct {
     const char *name;
     void (*fn)(char *args);
+    bool need_args;
 } commands[] = {
-    {"player", cmd_player},
-    {"monster", cmd_monster},
-    {"chest", cmd_chest},
-    {"attack", cmd_attack}, // %A
-    {"heal", cmd_heal}, // %H
-    {"open", cmd_open}, // %O
-    {"talk", cmd_talk}, // %T
-    {"status", cmd_status}, // %S
-    {"gm", cmd_gm},
+    {"player", cmd_player, true},
+    {"monster", cmd_monster, true},
+    {"chest", cmd_chest, true},
+    {"attack", cmd_attack, true}, // %A
+    {"heal", cmd_heal, true}, // %H
+    {"open", cmd_open, true}, // %O
+    {"talk", cmd_talk, true}, // %T
+    {"status", cmd_status, true}, // %S
+    {"gm", cmd_gm, true},
 };
 
 int printguard_n_specifier(FILE *stream, UNUSED const struct printf_info *info, UNUSED const void *const *args)
@@ -581,15 +577,12 @@ int main(UNUSED int argc, UNUSED char *argv[])
     flag.d.chest.lock = LEVEL_CAP + 1; /* out of reach for fair lock picking */
     flag.d.chest.contents = "the flag: " ECW_FLAG;
 
+    char *line = NULL;
+    size_t linelen = 0;
     while (!feof(stdin) && !ferror(stdin)) {
-        char *line = NULL;
-        size_t linelen = 0;
         ssize_t len = getline(&line, &linelen, stdin);
-        if (len < 0) {
-            // read error, must still free buffer
-            free(line);
+        if (len < 0)
             continue;
-        }
         // there may not be a newline at eof
         if (line[len-1] == '\n')
             line[len-1] = '\0';
@@ -610,10 +603,14 @@ int main(UNUSED int argc, UNUSED char *argv[])
             continue;
         }
 
-        commands[i].fn(arg);
+        if (commands[i].need_args && (arg == NULL || strlen(arg) < 1)) {
+            reply_error("missing arguments");
+            continue;
+        }
 
-        // free getline buffer
-        free(line);
+        commands[i].fn(arg);
     }
+    // free getline buffer
+    free(line);
     return ferror(stdin) ? EXIT_FAILURE : EXIT_SUCCESS;
 }

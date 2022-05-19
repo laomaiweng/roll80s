@@ -80,7 +80,7 @@ static struct thing flag;
 
 static struct thing *universe[1024] = {&flag, NULL};
 
-unsigned reserve_thing()
+unsigned reserve_thing(struct thing ***slotptr)
 {
     /* slot 0 is the flag, start searching at 1 */
     size_t i;
@@ -89,16 +89,19 @@ unsigned reserve_thing()
         reply_error("universe limit reached");
         return 0;
     }
-    return i;
+    *slotptr = &universe[i];
+    unsigned id = i+1u;
+    return id;
 }
 
 struct thing* get_thing(unsigned id)
 {
-    if (id >= ARRAY_SIZE(universe) || universe[id] == NULL) {
+    size_t i = id-1u; /* overflow is defined, and handled */
+    if (i >= ARRAY_SIZE(universe) || universe[i] == NULL) {
         reply_error("bad id: %u", id);
         return NULL;
     }
-    return universe[id];
+    return universe[i];
 }
 
 struct thing* get_typed_thing(unsigned id, enum type type)
@@ -190,7 +193,8 @@ void cmd_player(char *name)
         return;
     }
 
-    unsigned i = reserve_thing();
+    struct thing **slot;
+    unsigned i = reserve_thing(&slot);
     if (i == 0)
         return;
     struct thing *p = calloc(1, sizeof(*p));
@@ -203,7 +207,7 @@ void cmd_player(char *name)
     p->d.player.name = strdup(name);
     p->d.player.hitpoints = 1;
     p->d.player.level = 1;
-    universe[i] = p;
+    *slot = p;
 
     reply_msg("hello " BLUE "%s" BLACK "!", name);
     reply("id", "%zu", i);
@@ -226,7 +230,8 @@ void cmd_monster(char *args)
         return;
     }
 
-    unsigned i = reserve_thing();
+    struct thing **slot;
+    unsigned i = reserve_thing(&slot);
     if (i == 0)
         return;
     struct thing *m = calloc(1, sizeof(*m));
@@ -239,7 +244,7 @@ void cmd_monster(char *args)
     m->d.monster.name = strdup(name);
     m->d.monster.hitpoints = hp;
     m->d.monster.strength = strength;
-    universe[i] = m;
+    *slot = m;
 
     reply_msg("a wild " BLUE "%s" BLACK " appears!", name);
     reply("id", "%zu", i);
@@ -255,7 +260,8 @@ void cmd_chest(char *args)
     }
     char *contents = &args[read];
 
-    unsigned i = reserve_thing();
+    struct thing **slot;
+    unsigned i = reserve_thing(&slot);
     if (i == 0)
         return;
     struct thing *c = calloc(1, sizeof(*c));
@@ -268,7 +274,7 @@ void cmd_chest(char *args)
     c->d.chest.name = "chest";
     c->d.chest.lock = lock;
     c->d.chest.contents = strdup(contents);
-    universe[i] = c;
+    *slot = c;
 
     reply_msg("there's a %s in the room", c->d.chest.name);
     reply("id", "%zu", i);

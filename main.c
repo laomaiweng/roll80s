@@ -576,34 +576,38 @@ int main(UNUSED int argc, UNUSED char *argv[])
     flag.d.chest.contents = "the flag: " ECW_FLAG;
 
     while (!feof(stdin) && !ferror(stdin)) {
-        char buf[1024];
-        size_t len = fread(buf, 1, sizeof(buf), stdin);
-        if (len == 0)
+        char *line = NULL;
+        size_t linelen = 0;
+        ssize_t len = getline(&line, &linelen, stdin);
+        if (len < 0) {
+            // read error, must still free buffer
+            free(line);
             continue;
-        buf[len-1] = '\0';
-
-        for (char *linectx,
-                *line = strtok_r(buf, "\n", &linectx);
-                line != NULL;
-                line = strtok_r(NULL, "\n", &linectx)) {
-            VERBOSE_PRINT("line=<<<%s>>>", line);
-            char *cmdctx;
-            char *cmd = strtok_r(line, " ", &cmdctx);
-            if (cmd == NULL) /* TODO: error? */
-                continue;
-            if (cmd[0] == '#')
-                continue;
-            char *arg = strtok_r(NULL, "", &cmdctx);
-
-            size_t i;
-            for (i = 0; i < ARRAY_SIZE(commands) && strcmp(cmd, commands[i].name) != 0; i++);
-            if (i == ARRAY_SIZE(commands)) {
-                reply_error("unknown command: %s", cmd);
-                continue;
-            }
-
-            commands[i].fn(arg);
         }
+        // there may not be a newline at eof
+        if (line[len-1] == '\n')
+            line[len-1] = '\0';
+
+        VERBOSE_PRINT("line=<<<%s>>>", line);
+        char *cmdctx;
+        char *cmd = strtok_r(line, " ", &cmdctx);
+        if (cmd == NULL) /* TODO: error? */
+            continue;
+        if (cmd[0] == '#')
+            continue;
+        char *arg = strtok_r(NULL, "", &cmdctx);
+
+        size_t i;
+        for (i = 0; i < ARRAY_SIZE(commands) && strcmp(cmd, commands[i].name) != 0; i++);
+        if (i == ARRAY_SIZE(commands)) {
+            reply_error("unknown command: %s", cmd);
+            continue;
+        }
+
+        commands[i].fn(arg);
+
+        // free getline buffer
+        free(line);
     }
     return ferror(stdin) ? EXIT_FAILURE : EXIT_SUCCESS;
 }

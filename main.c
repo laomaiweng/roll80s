@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define UNUSED __attribute__((unused))
 
@@ -18,14 +19,14 @@
 #define MUST_BE_ARRAY(a) BUILD_BUG_ON_ZERO(__builtin_types_compatible_p(typeof(a), typeof(&a[0])))
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + MUST_BE_ARRAY(arr))
 
-#define RED "\e[1;31m"
-#define GREEN "\e[1;32m"
-#define BLUE "\e[1;34m"
-#define BLACK "\e[0m"
+static char *RED = "\e[1;31m";
+static char *GREEN = "\e[1;32m";
+static char *BLUE = "\e[1;34m";
+static char *BLACK = "\e[0m";
 
 #ifdef VERBOSE
  #define VERBOSE_PRINT(fmt, ...) \
-    printf("(VERBOSE) [%s] " fmt "\n", __PRETTY_FUNCTION__, ## __VA_ARGS__)
+    printf("\e[2;34;40m(VERBOSE) [%s] \e[0;30;46m" fmt "\e[0m\n", __PRETTY_FUNCTION__, ## __VA_ARGS__)
 #else
  #define VERBOSE_PRINT(...)
 #endif
@@ -204,7 +205,7 @@ void cmd_player(char *name)
     p->d.player.level = 1;
     *slot = p;
 
-    reply_msg("hello " BLUE "%s" BLACK "!", name);
+    reply_msg("hello %s%s%s!", BLUE, name, BLACK);
     reply("id", "%zu", i);
 }
 
@@ -241,7 +242,7 @@ void cmd_monster(char *args)
     m->d.monster.strength = strength;
     *slot = m;
 
-    reply_msg("a wild " BLUE "%s" BLACK " appears!", name);
+    reply_msg("a wild %s%s%s appears!", BLUE, name, BLACK);
     reply("id", "%zu", i);
 }
 
@@ -300,8 +301,8 @@ int printf_attack(FILE *stream, UNUSED const struct printf_info *info, const voi
     m->hitpoints -= p->level;
 
     int written = 0;
-    written += fprintf(stream, "%s hits %s for " BLUE "%d" BLACK " damage", p->name, m->name, p->level);
-    written += fprintf(stream, "\n %s hits %s for " GREEN "%d" BLACK " damage", m->name, p->name, attack);
+    written += fprintf(stream, "%s hits %s for %s%d%s damage", p->name, m->name, BLUE, p->level, BLACK);
+    written += fprintf(stream, "\n %s hits %s for %s%d%s damage", m->name, p->name, GREEN, attack, BLACK);
     if (m->hitpoints <= 0) {
         written += fprintf(stream, "\n %s dies!", m->name);
         if (gain_experience(p, m->strength))
@@ -351,7 +352,7 @@ int printf_heal(FILE *stream, UNUSED const struct printf_info *info, const void 
     p->hitpoints += hp;
 
     int written = 0;
-    written += fprintf(stream, "heal %s for " BLUE "%+d" BLACK " hitpoints", p->name, hp);
+    written += fprintf(stream, "heal %s for %s%+d%s hitpoints", p->name, BLUE, hp, BLACK);
     return written;
 }
 
@@ -433,9 +434,9 @@ int printf_talk(FILE *stream, UNUSED const struct printf_info *info, const void 
 
     if (len > 2 && msg[0] == '*' && msg[len-1] == '*') {
         msg[len-1] = '\0';
-        written += fprintf(stream, "%s " GREEN "%s" BLACK, p->name, &msg[1]);
+        written += fprintf(stream, "%s %s%s%s", p->name, GREEN, &msg[1], BLACK);
     } else
-        written += fprintf(stream, "%s says: " GREEN "%s" BLACK, p->name, msg);
+        written += fprintf(stream, "%s says: %s%s%s", p->name, GREEN, msg, BLACK);
     return written;
 }
 
@@ -485,24 +486,24 @@ int printf_status(FILE *stream, UNUSED const struct printf_info *info, const voi
             case PLAYER: {
                 const struct player *p = &t->d.player;
                 written += fprintf(stream, p->name, &things[i+1]->d, &things[i+2]->d, &things[i+3]->d, &things[i+4]->d); /* artificial but heh */
-                written += fprintf(stream, "\n  hitpoints: " BLUE "%d" BLACK, p->hitpoints);
-                written += fprintf(stream, "\n  level: " BLUE "%u" BLACK, p->level);
-                written += fprintf(stream, "\n  experience: " BLUE "%d" BLACK, p->experience);
+                written += fprintf(stream, "\n  hitpoints: %s%d%s", BLUE, p->hitpoints, BLACK);
+                written += fprintf(stream, "\n  level: %s%u%s", BLUE, p->level, BLACK);
+                written += fprintf(stream, "\n  experience: %s%d%s", BLUE, p->experience, BLACK);
                 break;
             }
 
             case MONSTER: {
                 const struct monster *m = &t->d.monster;
                 written += fprintf(stream, m->name, &things[i+1]->d, &things[i+2]->d, &things[i+3]->d, &things[i+4]->d); /* artificial but heh */
-                written += fprintf(stream, "\n  hitpoints: " BLUE "%d" BLACK, m->hitpoints);
-                written += fprintf(stream, "\n  strength: " BLUE "%u" BLACK, m->strength);
+                written += fprintf(stream, "\n  hitpoints: %s%d%s", BLUE, m->hitpoints, BLACK);
+                written += fprintf(stream, "\n  strength: %s%u%s", BLUE, m->strength, BLACK);
                 break;
             }
 
             case CHEST: {
                 const struct chest *c = &t->d.chest;
                 written += fprintf(stream, "a %s", c->name);
-                written += fprintf(stream, "\n  lock: " BLUE "%d" BLACK, c->lock);
+                written += fprintf(stream, "\n  lock: %s%d%s", BLUE, c->lock, BLACK);
                 VERBOSE_PRINT("\n  [contents %p: <<<%s>>>]", c->contents, c->contents);
                 break;
             }
@@ -531,7 +532,7 @@ void cmd_gm(char *msg)
         return;
     }
 
-    reply("gm", RED "%s" BLACK, msg);
+    reply("gm", "%s%s%s", RED, msg, BLACK);
 }
 
 static const struct {
@@ -562,6 +563,10 @@ int printguard_n_specifier_info(UNUSED const struct printf_info *info, UNUSED si
 
 int main(UNUSED int argc, UNUSED char *argv[])
 {
+    // disable colors if not printing to tty
+    if (!isatty(1))
+        RED = BLUE = GREEN = BLACK = "";
+
     if (register_printf_specifier('A', printf_attack, printf_arginfo_attack) ||
         register_printf_specifier('H', printf_heal, printf_arginfo_heal) ||
         register_printf_specifier('O', printf_open, printf_arginfo_open) ||

@@ -1,6 +1,6 @@
 BIN = roll80s
 SRC = main.c
-CFLAGS = -Wall -Wextra -std=gnu11
+override CFLAGS += -Wall -Wextra -std=gnu11
 
 release: CFLAGS += -O3
 release: $(BIN)

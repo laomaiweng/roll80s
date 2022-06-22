@@ -1,5 +1,6 @@
 /* main.c */
 
+#define _GNU_SOURCE
 #include <printf.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -76,10 +77,11 @@ struct thing {
     union thing_data d;
 };
 
-#define ECW_FLAG "ECW{flag}"
-static struct thing flag;
+#define FLAG_ENV "FLAG"
+#define FLAG_FMT "the flag: ECW{%s}"
+static struct thing flag_chest;
 
-static struct thing *universe[1024] = {&flag, NULL};
+static struct thing *universe[1024] = {&flag_chest, NULL};
 
 unsigned reserve_thing(struct thing ***slotptr)
 {
@@ -396,7 +398,7 @@ int printf_open(FILE *stream, UNUSED const struct printf_info *info, const void 
             written += fprintf(stream, "\n %s finds %s", p->name, c->contents);
         else
             written += fprintf(stream, "\n it's empty :(");
-        if (c != &flag.d.chest) {
+        if (c != &flag_chest.d.chest) {
             free(c->contents);
             delete_thing(c);
         }
@@ -586,10 +588,19 @@ int main(UNUSED int argc, UNUSED char *argv[])
         return EXIT_FAILURE;
     }
 
-    flag.type = CHEST;
-    flag.d.chest.name = "golden chest";
-    flag.d.chest.lock = LEVEL_CAP + 1; /* out of reach for fair lock picking */
-    flag.d.chest.contents = "the flag: " ECW_FLAG;
+    const char *flag_env = getenv(FLAG_ENV);
+    if (flag_env == NULL)
+        flag_env = "flag";
+    char *flag_contents;
+    if (asprintf(&flag_contents, FLAG_FMT, flag_env) == -1) {
+        perror("internal error");
+        return 1;
+    }
+
+    flag_chest.type = CHEST;
+    flag_chest.d.chest.name = "golden chest";
+    flag_chest.d.chest.lock = LEVEL_CAP + 1; /* out of reach for fair lock picking */
+    flag_chest.d.chest.contents = flag_contents;
 
     char *line = NULL;
     size_t linelen = 0;
@@ -626,5 +637,9 @@ int main(UNUSED int argc, UNUSED char *argv[])
     }
     // free getline buffer
     free(line);
+
+    // free the flag (not freed when this chest is opened)
+    free(flag_contents);
+
     return ferror(stdin) ? EXIT_FAILURE : EXIT_SUCCESS;
 }

@@ -456,9 +456,18 @@ void cmd_status(char *args)
     /* parse ids */
     unsigned ids[10];
     int read = 0;
-    char *curarg = args;
     size_t n;
-    for(n = 0; n < ARRAY_SIZE(ids) && sscanf(curarg, "%u%n", &ids[n], &read) == 1; n++, curarg += read);
+    char *argctx;
+    char *curarg = strtok_r(args, " ", &argctx);
+    for(n = 0; n < ARRAY_SIZE(ids) && curarg; n++) {
+        VERBOSE_PRINT("considering id: %s", curarg);
+        if (sscanf(curarg, "%u%n", &ids[n], &read) != 1 || (size_t) read != strlen(curarg)) {
+            reply_error("bad id: %s", curarg);
+            return;
+        }
+        curarg = strtok_r(NULL, " ", &argctx);
+    }
+    VERBOSE_PRINT("parsed %zu ids", n);
 
     /* find things */
     struct thing *things[10];

@@ -20,6 +20,22 @@
 #define MUST_BE_ARRAY(a) BUILD_BUG_ON_ZERO(__builtin_types_compatible_p(typeof(a), typeof(&a[0])))
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]) + MUST_BE_ARRAY(arr))
 
+char oom_saver[] = "OOM";
+
+char* strdup_no_oom(const char *str)
+{
+    char *dup = strdup(str);
+    if (dup == NULL)
+        dup = oom_saver;
+    return dup;
+}
+
+void strfree_no_oom(char *str)
+{
+    if (str != oom_saver)
+        free(str);
+}
+
 static char *RED = "\e[1;31m";
 static char *GREEN = "\e[1;32m";
 static char *BLUE = "\e[1;34m";
@@ -201,8 +217,10 @@ void cmd_player(char *name)
         return;
     }
 
+    name = strdup_no_oom(name);
+
     p->type = PLAYER;
-    p->d.player.name = strdup(name);
+    p->d.player.name = name;
     p->d.player.hitpoints = 1;
     p->d.player.level = 1;
     *slot = p;
@@ -238,8 +256,10 @@ void cmd_monster(char *args)
         return;
     }
 
+    name = strdup_no_oom(name);
+
     m->type = MONSTER;
-    m->d.monster.name = strdup(name);
+    m->d.monster.name = name;
     m->d.monster.hitpoints = hp;
     m->d.monster.strength = strength;
     *slot = m;
@@ -268,10 +288,12 @@ void cmd_chest(char *args)
         return;
     }
 
+    contents = strdup_no_oom(contents);
+
     c->type = CHEST;
     c->d.chest.name = "chest";
     c->d.chest.lock = lock;
-    c->d.chest.contents = strdup(contents);
+    c->d.chest.contents = contents;
     *slot = c;
 
     reply_msg("there's a %s in the room", c->d.chest.name);
@@ -309,7 +331,7 @@ int printf_attack(FILE *stream, UNUSED const struct printf_info *info, const voi
         written += fprintf(stream, "\n %s dies!", m->name);
         if (gain_experience(p, m->strength))
             written += fprintf(stream, "\n %s levels up", p->name);
-        free(m->name);
+        strfree_no_oom(m->name);
         delete_thing(m);
     }
     if (p->hitpoints == 0) {
@@ -319,7 +341,7 @@ int printf_attack(FILE *stream, UNUSED const struct printf_info *info, const voi
             written += fprintf(stream, "\n %s is torn to bits!", p->name);
         else
             written += fprintf(stream, "\n %s dies :(", p->name);
-        free(p->name);
+        strfree_no_oom(p->name);
         delete_thing(p);
     }
     return written;
@@ -399,7 +421,7 @@ int printf_open(FILE *stream, UNUSED const struct printf_info *info, const void 
         else
             written += fprintf(stream, "\n it's empty :(");
         if (c != &flag_chest.d.chest) {
-            free(c->contents);
+            strfree_no_oom(c->contents);
             delete_thing(c);
         }
     } else

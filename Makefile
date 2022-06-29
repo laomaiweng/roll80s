@@ -1,4 +1,4 @@
-BIN = roll80s
+BIN = bms2000
 SRC = main.c
 override CFLAGS += -Wall -Wextra -std=gnu11
 
@@ -9,7 +9,7 @@ debug: CFLAGS += -O0 -ggdb3 -DVERBOSE
 debug: $(BIN)
 
 afl: CC=afl-cc
-afl: BIN=roll80s-afl
+afl: BIN=bms2000-afl
 afl: release
 
 $(BIN): $(SRC)

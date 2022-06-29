@@ -1,20 +1,19 @@
-your parents' online virtual tabletop for pen & paper rpgs
+BMS2000 -- the computerized Baggage Management System
+
 
 secured with military-grade hacking protection by PrintGuard™
 
-
-warning: this is a preview version to showcase functionality! it lacks multi-user support for now
 
 
 
 commands:
 
-* `player NAME`: create a new player (returns its id)
-* `monster STR/HP NAME`: create a new monster with _STR_ strength & _HP_ hitpoints (returns its id)
-* `chest LOCK CONTENTS`: create a new chest, locked at difficulty _LOCK_, containing _CONTENTS_ (returns its id)
-* `attack PLAYER MONSTER`: player id _PLAYER_ attacks monster id _MONSTER_
-* `heal PLAYER HP`: player id _PLAYER_ heals by _HP_ hitpoints
-* `open PLAYER CHEST`: player id _PLAYER_ attempts to open chest id _CHEST_
-* `talk PLAYER MSG`: player id _PLAYER_ says _MSG_
+* `baggage DESCRIPTION`: register a new piece of baggage (returns its id)
+* `cart DESIGNATION`: register a new cart to carry baggage to an aircraft (returns its id)
+* `flight DESTINATION`: register a new flight (returns its id)
+* `put BAGGAGE CART`: put baggage id _BAGGAGE_ onto cart id _CART_
+* `route CART FLIGHT`: assign cart id _CART_ to flight id _FLIGHT_
+* `takeoff FLIGHT`: load all baggage from carts assigned to flight id _FLIGHT_ onto the aircraft
+                    all baggage will go through the advanced BS (Baggage Screening) procedure (except on special secure flights)
+                    all loaded baggage, as well as the departing flight, will be removed from the BMS
 * `status ID ...`: print the status for various ids
-* `gm MSG`: sends a game master announcement

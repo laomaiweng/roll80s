@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/random.h>
 
 #define UNUSED __attribute__((unused))
 
@@ -65,420 +66,367 @@ void reply(const char *type, const char *fmt, ...)
 #define reply_error(fmt, ...) \
     reply("error", fmt, ## __VA_ARGS__)
 
-union thing_data {
-    struct player {
-        char *name;
-        int hitpoints;
-        unsigned level;
-        unsigned experience;
-    } player;
-    struct monster {
-        char *name;
-        int hitpoints;
-        unsigned strength;
-    } monster;
-    struct chest {
-        const char *name;
-        unsigned lock;
-        char *contents;
-    } chest;
+union object_data {
+    struct baggage {
+        char *description;
+        unsigned cart;
+        unsigned weight;
+        const char *contents;
+    } baggage;
+    struct cart {
+        char *designation;
+        unsigned flight;
+        unsigned capacity;
+    } cart;
+    struct flight {
+        char *destination;
+    } flight;
 };
 
-struct thing {
+struct object {
     enum type {
-        PLAYER,
-        MONSTER,
-        CHEST
+        BAGGAGE,
+        CART,
+        FLIGHT,
     } type;
-    union thing_data d;
+    union object_data d;
 };
+
+static const char *dummy_contents[8] = {"clothes", "dirty clothes", "electronics", "wine", "beach items", "books", "souvenirs", "a sedated cat"};
 
 #define FLAG_ENV "FLAG"
-#define FLAG_FMT "the flag: ECW{%s}"
-static struct thing flag_chest;
+#define FLAG_FMT "ECW{%s}"
 
-static struct thing *universe[1024] = {&flag_chest, NULL};
+static struct object flag_baggage;
+static struct object heavy_cart;
+static struct object secure_flight;
 
-unsigned reserve_thing(struct thing ***slotptr)
+#define FLAG_BAGGAGE_DESC "top secret suitcase"
+#define FLAG_BAGGAGE_WEIGHT 42
+#define HEAVY_CART_DESIG "secure heavy-duty cart"
+#define HEAVY_CART_CAPACITY 50
+#define SECURE_FLIGHT_DEST "top secret destination"
+
+static struct object *airport[1024] = {&flag_baggage, &heavy_cart, &secure_flight, NULL};
+
+/* hard-coded indexes */
+#define INVALID_ID 0
+#define MIN_ID 1
+#define SECURE_FLIGHT_ID 3
+#define MAX_ID (ARRAY_SIZE(airport))
+
+unsigned reserve_object(struct object ***slotptr)
 {
-    /* slot 0 is the flag, start searching at 1 */
     size_t i;
-    for (i = 1; i < ARRAY_SIZE(universe) && universe[i] != NULL; i++);
-    if (i == ARRAY_SIZE(universe)) {
-        reply_error("universe limit reached");
+    for (i = 0; i < ARRAY_SIZE(airport) && airport[i] != NULL; i++);
+    if (i == ARRAY_SIZE(airport)) {
+        reply_error("airport capacity reached");
         return 0;
     }
-    *slotptr = &universe[i];
+    *slotptr = &airport[i];
     unsigned id = i+1u;
     return id;
 }
 
-struct thing* get_thing(unsigned id)
+struct object* get_object(unsigned id, bool send_errors)
 {
     size_t i = id-1u; /* overflow is defined, and handled */
-    if (i >= ARRAY_SIZE(universe) || universe[i] == NULL) {
-        reply_error("bad id: %u", id);
+    if (i >= ARRAY_SIZE(airport) || airport[i] == NULL) {
+        if (send_errors)
+            reply_error("bad id: %u", id);
         return NULL;
     }
-    return universe[i];
+    return airport[i];
 }
 
-struct thing* get_typed_thing(unsigned id, enum type type)
+struct object* get_typed_object(unsigned id, enum type type, bool send_errors)
 {
-    struct thing *thing = get_thing(id);
-    if (thing == NULL)
+    struct object *object = get_object(id, send_errors);
+    if (object == NULL)
         return NULL;
-    if (thing->type != type) {
-        reply_error("bad thing: %u", id);
+    if (object->type != type) {
+        if (send_errors)
+            reply_error("bad object: %u", id);
         return NULL;
     }
-    return thing;
+    return object;
 }
 
-void delete_thing(void *data)
+struct object* take_object(unsigned id)
 {
-    size_t i;
-    for (i = 0; i < ARRAY_SIZE(universe); i++)
-        if (universe[i] != NULL && &universe[i]->d == data)
-            break;
-    if (i == ARRAY_SIZE(universe)) {
-        reply_error("bad id");
-        return;
-    }
-
-    free(universe[i]);
-    universe[i] = NULL;
+    size_t i = id-1u; /* overflow is defined, and handled */
+    if (i >= ARRAY_SIZE(airport))
+        return NULL;
+    struct object *obj = airport[i];
+    airport[i] = NULL;
+    return obj;
 }
 
-#define LEVEL_CAP 99
-
-bool gain_experience(struct player *p, unsigned xp)
+bool parse_id(enum type type, char **args, unsigned *id)
 {
-    if (p->level >= LEVEL_CAP)
-        return false;
-
-    p->experience += xp;
-    if (p->experience <= p->level)
-        return false;
-
-    p->experience = 0;
-    p->level += 1;
-    return true;
-}
-
-bool parse_player(char **args, struct player **player)
-{
-    unsigned id;
     int read = 0;
-    if (sscanf(*args, "%u %n", &id, &read) != 1) {
+    if (sscanf(*args, "%u%n", id, &read) != 1) {
         reply_error("bad id");
         return false;
     }
 
-    struct thing *thing = get_typed_thing(id, PLAYER);
-    if (thing == NULL)
+    struct object *object = get_typed_object(*id, type, true);
+    if (object == NULL)
         return false;
 
-    *player = &thing->d.player;
     *args = &(*args)[read];
 
     return true;
 }
 
-bool parse_player_with_args(char **args, struct player **player, const char *fmt, ...)
+#define DEFAULT_BAGGAGE_WEIGHT 1
+
+void cmd_baggage(char *desc)
 {
-    if (!parse_player(args, player))
-        return false;
-
-    va_list subargs;
-    va_start(subargs, fmt);
-    int scanned = vsscanf(*args, fmt, subargs);
-    va_end(subargs);
-    scanned = scanned < 0 ? 0 : scanned; /* can it be < 0 with sscanf? */
-
-    size_t nargs = parse_printf_format(fmt, 0, NULL);
-    if ((size_t) scanned != nargs) {
-        reply_error("bad args");
-        return false;
-    }
-
-    return true;
-}
-
-void cmd_player(char *name)
-{
-    struct thing **slot;
-    unsigned i = reserve_thing(&slot);
+    struct object **slot;
+    unsigned i = reserve_object(&slot);
     if (i == 0)
         return;
-    struct thing *p = calloc(1, sizeof(*p));
-    if (p == NULL) {
+    struct object *b = calloc(1, sizeof(*b));
+    if (b == NULL) {
         reply_error("out of memory");
         return;
     }
 
-    name = strdup_no_oom(name);
+    desc = strdup_no_oom(desc);
 
-    p->type = PLAYER;
-    p->d.player.name = name;
-    p->d.player.hitpoints = 1;
-    p->d.player.level = 1;
-    *slot = p;
+    /* random contents */
+    unsigned r;
+    if (getrandom(&r, sizeof(r), 0) == sizeof(r))
+        r %= ARRAY_SIZE(dummy_contents);
+    else
+        r = 0;
 
-    reply_msg("hello %s%s%s!", BLUE, name, BLACK);
+    b->type = BAGGAGE;
+    b->d.baggage.description = desc;
+    b->d.baggage.cart = INVALID_ID;
+    b->d.baggage.weight = DEFAULT_BAGGAGE_WEIGHT;
+    b->d.baggage.contents = dummy_contents[r];
+    *slot = b;
+
+    reply_msg("baggage checkin: %s%s%s", BLUE, desc, BLACK);
     reply("id", "%zu", i);
 }
 
-void cmd_monster(char *args)
-{
-    unsigned strength, hp;
-    int read = 0;
-    if (sscanf(args, "%u/%u %n", &strength, &hp, &read) != 2) {
-        if (read > 1)
-            reply_error("bad attributes: %*s", read-1, args);
-        else
-            reply_error("bad attributes");
-        return;
-    }
-    char *name = &args[read];
-    if (strlen(name) < 1) {
-        reply_error("bad name");
-        return;
-    }
+#define DEFAULT_CART_CAPACITY 10
 
-    struct thing **slot;
-    unsigned i = reserve_thing(&slot);
+void cmd_cart(char *desig)
+{
+    struct object **slot;
+    unsigned i = reserve_object(&slot);
     if (i == 0)
         return;
-    struct thing *m = calloc(1, sizeof(*m));
-    if (m == NULL) {
-        reply_error("out of memory");
-        return;
-    }
-
-    name = strdup_no_oom(name);
-
-    m->type = MONSTER;
-    m->d.monster.name = name;
-    m->d.monster.hitpoints = hp;
-    m->d.monster.strength = strength;
-    *slot = m;
-
-    reply_msg("a wild %s%s%s appears!", BLUE, name, BLACK);
-    reply("id", "%zu", i);
-}
-
-void cmd_chest(char *args)
-{
-    unsigned lock;
-    int read = 0;
-    if (sscanf(args, "%u %n", &lock, &read) != 1) {
-        reply_error("bad lock strength");
-        return;
-    }
-    char *contents = &args[read];
-
-    struct thing **slot;
-    unsigned i = reserve_thing(&slot);
-    if (i == 0)
-        return;
-    struct thing *c = calloc(1, sizeof(*c));
+    struct object *c = calloc(1, sizeof(*c));
     if (c == NULL) {
         reply_error("out of memory");
         return;
     }
 
-    contents = strdup_no_oom(contents);
+    desig = strdup_no_oom(desig);
 
-    c->type = CHEST;
-    c->d.chest.name = "chest";
-    c->d.chest.lock = lock;
-    c->d.chest.contents = contents;
+    c->type = CART;
+    c->d.cart.designation = desig;
+    c->d.cart.flight = INVALID_ID;
+    c->d.cart.capacity = DEFAULT_CART_CAPACITY;
     *slot = c;
 
-    reply_msg("there's a %s in the room", c->d.chest.name);
+    reply_msg("cart ready: %s%s%s", BLUE, desig, BLACK);
     reply("id", "%zu", i);
 }
 
-void cmd_attack(char *args)
+void cmd_flight(char *dest)
 {
-    struct player *p;
-    unsigned monster_id;
-    if (!parse_player_with_args(&args, &p, "%u", &monster_id))
+    struct object **slot;
+    unsigned i = reserve_object(&slot);
+    if (i == 0)
         return;
-    struct thing *m = get_typed_thing(monster_id, MONSTER);
-    if (m == NULL)
+    struct object *f = calloc(1, sizeof(*f));
+    if (f == NULL) {
+        reply_error("out of memory");
         return;
+    }
 
-    reply_msg("%A", p, &m->d.monster);
+    dest = strdup_no_oom(dest);
+
+    f->type = FLIGHT;
+    f->d.flight.destination = dest;
+    *slot = f;
+
+    reply_msg("flight announced: %s%s%s", BLUE, f->d.flight.destination, BLACK);
+    reply("id", "%zu", i);
 }
 
-int printf_attack(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
+void cmd_put(char *args)
 {
-    struct player *p = *((struct player**)(args[0]));
-    struct monster *m = *((struct monster**)(args[1]));
+    unsigned bid, cid;
+    if (!parse_id(BAGGAGE, &args, &bid))
+        return;
+    if (!parse_id(CART, &args, &cid))
+        return;
 
-    int attack = m->strength - p->level;
-    if (attack < 0)
-        attack = 0;
-    p->hitpoints -= attack;
-    m->hitpoints -= p->level;
-
-    int written = 0;
-    written += fprintf(stream, "%s hits %s for %s%d%s damage", p->name, m->name, BLUE, p->level, BLACK);
-    written += fprintf(stream, "\n %s hits %s for %s%d%s damage", m->name, p->name, GREEN, attack, BLACK);
-    if (m->hitpoints <= 0) {
-        written += fprintf(stream, "\n %s dies!", m->name);
-        if (gain_experience(p, m->strength))
-            written += fprintf(stream, "\n %s levels up", p->name);
-        strfree_no_oom(m->name);
-        delete_thing(m);
-    }
-    if (p->hitpoints == 0) {
-        written += fprintf(stream, "\n %s is in critical condition", p->name);
-    } else if (p->hitpoints < 0) {
-        if (p->hitpoints < -10)
-            written += fprintf(stream, "\n %s is torn to bits!", p->name);
-        else
-            written += fprintf(stream, "\n %s dies :(", p->name);
-        strfree_no_oom(p->name);
-        delete_thing(p);
-    }
-    return written;
+    reply_msg("%P", bid, cid);
 }
 
-int printf_arginfo_attack(UNUSED const struct printf_info *info, UNUSED size_t n, UNUSED int *argtypes, UNUSED int *sizes)
+int printf_put(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
+{
+    // IDs have already been validated, just get the objects
+    unsigned bid = *(unsigned*)args[0];
+    struct baggage *b = &get_object(bid, false)->d.baggage;
+    unsigned cid = *(unsigned*)args[1];
+    struct cart *c = &get_object(cid, false)->d.cart;
+
+    if (b->weight > c->capacity) {
+        return fprintf(stream, "baggage exceeds remaining cart capacity!");
+    }
+
+    b->cart = cid;
+    c->capacity -= b->weight;
+
+    return fprintf(stream, "baggage %s%s%s successfully put onto cart %s%s%s", BLUE, b->description, BLACK, BLUE, c->designation, BLACK);
+}
+
+int printf_arginfo_put(UNUSED const struct printf_info *info, UNUSED size_t n, UNUSED int *argtypes, UNUSED int *sizes)
 {
     if (n >= 2) {
-        argtypes[0] = PA_POINTER;
-        sizes[0] = sizeof(struct player*);
-        argtypes[1] = PA_POINTER;
-        sizes[1] = sizeof(struct monster*);
-    }
-    return 2;
-}
-
-void cmd_heal(char *args)
-{
-    struct player *p;
-    int hp;
-    if (!parse_player_with_args(&args, &p, "%d", &hp))
-        return;
-
-    reply_msg("%H", p, hp);
-}
-
-int printf_heal(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
-{
-    struct player *p = *((struct player**)(args[0]));
-    int hp = *((int*)(args[1]));
-
-    p->hitpoints += hp;
-
-    int written = 0;
-    written += fprintf(stream, "heal %s for %s%+d%s hitpoints", p->name, BLUE, hp, BLACK);
-    return written;
-}
-
-int printf_arginfo_heal(UNUSED const struct printf_info *info, UNUSED size_t n, UNUSED int *argtypes, UNUSED int *sizes)
-{
-    if (n >= 2) {
-        argtypes[0] = PA_POINTER;
-        sizes[0] = sizeof(struct player*);
+        argtypes[0] = PA_INT;
+        sizes[0] = sizeof(unsigned);
         argtypes[1] = PA_INT;
-        sizes[1] = sizeof(int);
+        sizes[1] = sizeof(unsigned);
     }
     return 2;
 }
 
-void cmd_open(char *args)
+void cmd_route(char *args)
 {
-    struct player *p;
-    unsigned chest_id;
-    if (!parse_player_with_args(&args, &p, "%u", &chest_id))
+    unsigned cid, fid;
+    if (!parse_id(CART, &args, &cid))
+        return;
+    if (!parse_id(FLIGHT, &args, &fid))
         return;
 
-    struct thing *c = get_typed_thing(chest_id, CHEST);
-    if (c == NULL)
-        return;
-
-    reply_msg("%O", p, &c->d.chest);
+    reply_msg("%R", cid, fid);
 }
 
-int printf_open(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
+int printf_route(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
 {
-    struct player *p = *((struct player**)(args[0]));
-    struct chest *c = *((struct chest**)(args[1]));
+    // IDs have already been validated, just get the objects
+    unsigned cid = *(unsigned*)args[0];
+    struct cart *c = &get_object(cid, false)->d.cart;
+    unsigned fid = *(unsigned*)args[1];
+    struct flight *f = &get_object(fid, false)->d.flight;
 
-    int written = 0;
-    written += fprintf(stream, "%s attempts to open a %s", p->name, c->name);
-    if ((int) p->level >= (int) c->lock) {
-        written += fprintf(stream, "\n lock picked successfully!");
-        if (p->level == c->lock && gain_experience(p, 1))
-            written += fprintf(stream, "\n %s levels up", p->name);
-        if (strlen(c->contents) > 0)
-            written += fprintf(stream, "\n %s finds %s", p->name, c->contents);
+    // prevent re-routing the secure cart
+    if (c == &heavy_cart.d.cart)
+        return fprintf(stream, "unable to re-route the secure cart!");
+
+    c->flight = fid;
+
+    return fprintf(stream, "cart %s%s%s routed to flight for %s%s%s", BLUE, c->designation, BLACK, BLUE, f->destination, BLACK);
+}
+
+int printf_arginfo_route(UNUSED const struct printf_info *info, UNUSED size_t n, UNUSED int *argtypes, UNUSED int *sizes)
+{
+    if (n >= 2) {
+        argtypes[0] = PA_INT;
+        sizes[0] = sizeof(unsigned);
+        argtypes[1] = PA_INT;
+        sizes[1] = sizeof(unsigned);
+    }
+    return 2;
+}
+
+void cmd_takeoff(char *args)
+{
+    unsigned fid;
+    if (!parse_id(FLIGHT, &args, &fid))
+        return;
+
+    reply_msg("%T", fid);
+}
+
+int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
+{
+    // ID has already been validated, just get the object
+    unsigned fid = *(unsigned*)args[0];
+    struct flight *f = &get_object(fid, false)->d.flight;
+    bool secure = f == &secure_flight.d.flight;
+    int written = fprintf(stream, "loading baggages onto %sflight to %s%s%s", secure ? "secure " : "", BLUE, f->destination, BLACK);
+
+    // loop over all objects to find baggages for this flight
+    size_t count = 0;
+    for (unsigned id = MIN_ID; id <= MAX_ID; id++) {
+        struct object *obj = get_typed_object(id, BAGGAGE, false);
+        if (obj == NULL)
+            continue;
+        struct baggage *b = &obj->d.baggage;
+        if (b->cart == INVALID_ID)
+            continue;
+        // by design b->cart *should* always be a cart ID, so we use the untyped getter
+        // (though through the vuln, the user may have set b->cart to something that's not a cart ID)
+        obj = get_object(b->cart, false);
+        if (obj == NULL)
+            continue;
+        struct cart *c = &obj->d.cart;
+        if (c->flight != fid)
+            continue;
+
+        // found a baggage put on a cart routed to our flight
+        written += fprintf(stream, "\n screening baggage %s%s%s contents: ", BLUE, b->description, BLACK);
+        if (secure)
+            written += fprintf(stream, "%sREDACTED%s", RED, BLACK);
         else
-            written += fprintf(stream, "\n it's empty :(");
-        if (c != &flag_chest.d.chest) {
-            strfree_no_oom(c->contents);
-            delete_thing(c);
+            written += fprintf(stream, "%s%s%s", RED, b->contents, BLACK);
+
+        c->capacity += b->weight;
+
+        if (b == &flag_baggage.d.baggage) {
+            // it's the flag baggage, remove it without freeing it
+            take_object(id);
+        } else {
+            strfree_no_oom(b->description);
+            free(take_object(id));
         }
-    } else
-        written += fprintf(stream, "\n this lock is too tough");
+
+        count += 1;
+    }
+    if (count == 0)
+        written += fprintf(stream, "\n no baggages to load!");
+
+    //TODO: clear flight id of carts which loaded their baggages onto this flight?
+    //      or leave it as a vuln / vuln helper?
+
+    written += fprintf(stream, "\n flight to %s%s%s took off!", BLUE, f->destination, BLACK);
+    if (secure) {
+        // it's the secure flight, remove it without freeing it
+        take_object(fid);
+        // and de-route the secure cart
+        heavy_cart.d.cart.flight = INVALID_ID;
+    } else {
+        strfree_no_oom(f->destination);
+        free(take_object(fid));
+    }
+
     return written;
 }
 
-int printf_arginfo_open(UNUSED const struct printf_info *info, UNUSED size_t n, UNUSED int *argtypes, UNUSED int *sizes)
+int printf_arginfo_takeoff(UNUSED const struct printf_info *info, UNUSED size_t n, UNUSED int *argtypes, UNUSED int *sizes)
 {
-    if (n >= 2) {
-        argtypes[0] = PA_POINTER;
-        sizes[0] = sizeof(struct player*);
-        argtypes[1] = PA_POINTER;
-        sizes[1] = sizeof(struct chest*);
+    if (n >= 1) {
+        argtypes[0] = PA_INT;
+        sizes[0] = sizeof(unsigned);
     }
-    return 2;
-}
-
-void cmd_talk(char *args)
-{
-    struct player *p;
-    if (!parse_player(&args, &p))
-        return;
-
-    reply_msg("%T", p, args);
-}
-
-int printf_talk(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
-{
-    const struct player *p = *((const struct player**)(args[0]));
-    char *msg = *((char**)(args[1]));
-    size_t len = strlen(msg);
-    int written = 0;
-
-    if (len > 2 && msg[0] == '*' && msg[len-1] == '*') {
-        msg[len-1] = '\0';
-        written += fprintf(stream, "%s %s%s%s", p->name, GREEN, &msg[1], BLACK);
-    } else
-        written += fprintf(stream, "%s says: %s%s%s", p->name, GREEN, msg, BLACK);
-    return written;
-}
-
-int printf_arginfo_talk(UNUSED const struct printf_info *info, UNUSED size_t n, UNUSED int *argtypes, UNUSED int *sizes)
-{
-    if (n >= 2) {
-        argtypes[0] = PA_POINTER;
-        sizes[0] = sizeof(struct player*);
-        argtypes[1] = PA_POINTER;
-        sizes[1] = sizeof(char*);
-    }
-    return 2;
+    return 1;
 }
 
 void cmd_status(char *args)
 {
     /* parse ids */
-    unsigned ids[10];
+    unsigned ids[10] = {0};
     int read = 0;
     size_t n;
     char *argctx;
@@ -489,60 +437,61 @@ void cmd_status(char *args)
             reply_error("bad id: %s", curarg);
             return;
         }
+        /* ensure an object is present */
+        if (get_object(ids[n], true) == NULL)
+            return;
         curarg = strtok_r(NULL, " ", &argctx);
     }
     VERBOSE_PRINT("parsed %zu ids", n);
 
-    /* find things */
-    struct thing *things[10];
-    for (size_t i = 0; i < n; i++) {
-        things[i] = get_thing(ids[i]);
-        if (things[i] == NULL)
-            return;
-    }
-
-    /* print things */
-    reply_msg("%*S", n, things);
+    /* print objects */
+    reply_msg("%*S", n, ids);
 }
 
 int printf_status(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
 {
-    const struct thing **things = *((const struct thing***)(args[0]));
-    int n = info->width;
+    unsigned *ids = *(unsigned**)args[0];
     int written = 0;
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < info->width; i++) {
         if (i > 0)
             written += fprintf(stream, "\n\n ");
-        const struct thing *t = things[i];
-        VERBOSE_PRINT("[t=%p d=%p]", t, &t->d);
-        switch(t->type) {
-            case PLAYER: {
-                const struct player *p = &t->d.player;
-                written += fprintf(stream, p->name, &things[i+1]->d, &things[i+2]->d, &things[i+3]->d, &things[i+4]->d); /* artificial but heh */
-                written += fprintf(stream, "\n  hitpoints: %s%d%s", BLUE, p->hitpoints, BLACK);
-                written += fprintf(stream, "\n  level: %s%u%s", BLUE, p->level, BLACK);
-                written += fprintf(stream, "\n  experience: %s%d%s", BLUE, p->experience, BLACK);
+        // ID has already been validated, just get the object
+        struct object *obj = get_object(ids[i], false);
+        VERBOSE_PRINT("[o=%p d=%p]", obj, &obj->d);
+        switch(obj->type) {
+            case BAGGAGE: {
+                const struct baggage *b = &obj->d.baggage;
+                written += fprintf(stream, b->description, ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial but heh */
+                if (b->cart == INVALID_ID)
+                    written += fprintf(stream, "\n  cart: N/A");
+                else
+                    written += fprintf(stream, "\n  cart: %s%d%s", BLUE, b->cart, BLACK);
+                written += fprintf(stream, "\n  weight: %s%u%s", BLUE, b->weight, BLACK);
+                VERBOSE_PRINT("\n  [contents %p: <<<%s>>>]", b->contents, b->contents);
                 break;
             }
 
-            case MONSTER: {
-                const struct monster *m = &t->d.monster;
-                written += fprintf(stream, m->name, &things[i+1]->d, &things[i+2]->d, &things[i+3]->d, &things[i+4]->d); /* artificial but heh */
-                written += fprintf(stream, "\n  hitpoints: %s%d%s", BLUE, m->hitpoints, BLACK);
-                written += fprintf(stream, "\n  strength: %s%u%s", BLUE, m->strength, BLACK);
+            case CART: {
+                const struct cart *c = &obj->d.cart;
+                written += fprintf(stream, c->designation, ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial but heh */
+                if (c->flight == INVALID_ID)
+                    written += fprintf(stream, "\n  flight: N/A");
+                else
+                    written += fprintf(stream, "\n  flight: %s%u%s", BLUE, c->flight, BLACK);
+                written += fprintf(stream, "\n  capacity: %s%u%s", BLUE, c->capacity, BLACK);
                 break;
             }
 
-            case CHEST: {
-                const struct chest *c = &t->d.chest;
-                written += fprintf(stream, "a %s", c->name);
-                written += fprintf(stream, "\n  lock: %s%d%s", BLUE, c->lock, BLACK);
-                VERBOSE_PRINT("\n  [contents %p: <<<%s>>>]", c->contents, c->contents);
+            case FLIGHT: {
+                bool secure = obj == &secure_flight;
+                const struct flight *f = &obj->d.flight;
+                written += fprintf(stream, "flight to %s%s%s", BLUE, f->destination, BLACK);
+                written += fprintf(stream, "\n  secure: %s%s%s", BLUE, secure ? "yes" : "no", BLACK);
                 break;
             }
 
             default:
-                written += fprintf(stream, "invalid thing type, should never happen!");
+                written += fprintf(stream, "invalid object type, should never happen!");
                 break;
         }
     }
@@ -553,19 +502,9 @@ int printf_arginfo_status(UNUSED const struct printf_info *info, UNUSED size_t n
 {
     if (n >= 1) {
         argtypes[0] = PA_POINTER;
-        sizes[0] = sizeof(struct thing*);
+        sizes[0] = sizeof(unsigned*);
     }
     return 1;
-}
-
-void cmd_gm(char *msg)
-{
-    if (msg == NULL || strlen(msg) < 1) {
-        reply_error("bad message");
-        return;
-    }
-
-    reply("gm", "%s%s%s", RED, msg, BLACK);
 }
 
 static const struct {
@@ -573,15 +512,13 @@ static const struct {
     void (*fn)(char *args);
     bool need_args;
 } commands[] = {
-    {"player", cmd_player, true},
-    {"monster", cmd_monster, true},
-    {"chest", cmd_chest, true},
-    {"attack", cmd_attack, true}, // %A
-    {"heal", cmd_heal, true}, // %H
-    {"open", cmd_open, true}, // %O
-    {"talk", cmd_talk, true}, // %T
+    {"baggage", cmd_baggage, true},
+    {"cart", cmd_cart, true},
+    {"flight", cmd_flight, true},
+    {"put", cmd_put, true}, // %P
+    {"route", cmd_route, true}, // %R
+    {"takeoff", cmd_takeoff, true}, // %T
     {"status", cmd_status, true}, // %S
-    {"gm", cmd_gm, true},
 };
 
 int printguard_n_specifier(FILE *stream, UNUSED const struct printf_info *info, UNUSED const void *const *args)
@@ -600,10 +537,9 @@ int main(UNUSED int argc, UNUSED char *argv[])
     if (!isatty(1))
         RED = BLUE = GREEN = BLACK = "";
 
-    if (register_printf_specifier('A', printf_attack, printf_arginfo_attack) ||
-        register_printf_specifier('H', printf_heal, printf_arginfo_heal) ||
-        register_printf_specifier('O', printf_open, printf_arginfo_open) ||
-        register_printf_specifier('T', printf_talk, printf_arginfo_talk) ||
+    if (register_printf_specifier('P', printf_put, printf_arginfo_put) ||
+        register_printf_specifier('R', printf_route, printf_arginfo_route) ||
+        register_printf_specifier('T', printf_takeoff, printf_arginfo_takeoff) ||
         register_printf_specifier('S', printf_status, printf_arginfo_status) ||
         register_printf_specifier('n', printguard_n_specifier, printguard_n_specifier_info)) {
         fprintf(stderr, "init failed\n");
@@ -619,10 +555,19 @@ int main(UNUSED int argc, UNUSED char *argv[])
         return 1;
     }
 
-    flag_chest.type = CHEST;
-    flag_chest.d.chest.name = "golden chest";
-    flag_chest.d.chest.lock = LEVEL_CAP + 1; /* out of reach for fair lock picking */
-    flag_chest.d.chest.contents = flag_contents;
+    flag_baggage.type = BAGGAGE;
+    flag_baggage.d.baggage.description = FLAG_BAGGAGE_DESC;
+    flag_baggage.d.baggage.cart = INVALID_ID;
+    flag_baggage.d.baggage.weight = FLAG_BAGGAGE_WEIGHT;
+    flag_baggage.d.baggage.contents = flag_contents;
+
+    heavy_cart.type = CART;
+    heavy_cart.d.cart.designation = HEAVY_CART_DESIG;
+    heavy_cart.d.cart.flight = SECURE_FLIGHT_ID;
+    heavy_cart.d.cart.capacity = HEAVY_CART_CAPACITY;
+
+    secure_flight.type = FLIGHT;
+    secure_flight.d.flight.destination = SECURE_FLIGHT_DEST;
 
     char *line = NULL;
     size_t linelen = 0;
@@ -660,7 +605,7 @@ int main(UNUSED int argc, UNUSED char *argv[])
     // free getline buffer
     free(line);
 
-    // free the flag (not freed when this chest is opened)
+    // free the flag
     free(flag_contents);
 
     return ferror(stdin) ? EXIT_FAILURE : EXIT_SUCCESS;

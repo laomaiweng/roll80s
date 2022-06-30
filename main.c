@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <sys/random.h>
 
+#include "banner.h"
+
 #define UNUSED __attribute__((unused))
 
 /* Force a compilation error if condition is true, but also produce a
@@ -48,6 +50,29 @@ static char *BLACK = "\e[0m";
 #else
  #define VERBOSE_PRINT(...)
 #endif
+
+/* this fprintf is vulnerable because it's passed an attacker-controlled format string */
+int vulnerable_fprintf(FILE *stream, size_t nargs, const char *vulnerable_fmt, ...)
+{
+    /* foil attempts at leaking too much info: look for $ and too many % */
+    size_t percent = 0;
+    for (const char *c = vulnerable_fmt; *c != '\0'; c++) {
+        if (*c == '$')
+            return fprintf(stream, "<PrintGuard™: $ deflected>");
+        if (*c == '%') {
+            percent++;
+            if (percent > nargs)
+                return fprintf(stream, "<PrintGuard™: suspicous amount of %% deflected>");
+        }
+    }
+
+    /* print */
+    va_list args;
+    va_start(args, vulnerable_fmt);
+    int written = vfprintf(stream, vulnerable_fmt, args);
+    va_end(args);
+    return written;
+}
 
 void reply(const char *type, const char *fmt, ...)
 {
@@ -274,7 +299,7 @@ void cmd_put(char *args)
 
 int printf_put(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
 {
-    // IDs have already been validated, just get the objects
+    /* IDs have already been validated, just get the objects */
     unsigned bid = *(unsigned*)args[0];
     struct baggage *b = &get_object(bid, false)->d.baggage;
     unsigned cid = *(unsigned*)args[1];
@@ -314,13 +339,13 @@ void cmd_route(char *args)
 
 int printf_route(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
 {
-    // IDs have already been validated, just get the objects
+    /* IDs have already been validated, just get the objects */
     unsigned cid = *(unsigned*)args[0];
     struct cart *c = &get_object(cid, false)->d.cart;
     unsigned fid = *(unsigned*)args[1];
     struct flight *f = &get_object(fid, false)->d.flight;
 
-    // prevent re-routing the secure cart
+    /* prevent re-routing the secure cart */
     if (c == &heavy_cart.d.cart)
         return fprintf(stream, "unable to re-route the secure cart!");
 
@@ -351,13 +376,13 @@ void cmd_takeoff(char *args)
 
 int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
 {
-    // ID has already been validated, just get the object
+    /* ID has already been validated, just get the object */
     unsigned fid = *(unsigned*)args[0];
     struct flight *f = &get_object(fid, false)->d.flight;
     bool secure = f == &secure_flight.d.flight;
     int written = fprintf(stream, "loading baggages onto %sflight to %s%s%s", secure ? "secure " : "", BLUE, f->destination, BLACK);
 
-    // loop over all objects to find baggages for this flight
+    /* loop over all objects to find baggages for this flight */
     size_t count = 0;
     for (unsigned id = MIN_ID; id <= MAX_ID; id++) {
         struct object *obj = get_typed_object(id, BAGGAGE, false);
@@ -366,8 +391,8 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
         struct baggage *b = &obj->d.baggage;
         if (b->cart == INVALID_ID)
             continue;
-        // by design b->cart *should* always be a cart ID, so we use the untyped getter
-        // (though through the vuln, the user may have set b->cart to something that's not a cart ID)
+        /* by design b->cart *should* always be a cart ID, so we use the untyped getter
+           (though through the vuln, the user may have set b->cart to something that's not a cart ID) */
         obj = get_object(b->cart, false);
         if (obj == NULL)
             continue;
@@ -375,7 +400,7 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
         if (c->flight != fid)
             continue;
 
-        // found a baggage put on a cart routed to our flight
+        /* found a baggage put on a cart routed to our flight */
         written += fprintf(stream, "\n screening baggage %s%s%s contents: ", BLUE, b->description, BLACK);
         if (secure)
             written += fprintf(stream, "%sREDACTED%s", RED, BLACK);
@@ -385,7 +410,7 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
         c->capacity += b->weight;
 
         if (b == &flag_baggage.d.baggage) {
-            // it's the flag baggage, remove it without freeing it
+            /* it's the flag baggage, remove it without freeing it */
             take_object(id);
         } else {
             strfree_no_oom(b->description);
@@ -402,9 +427,9 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
 
     written += fprintf(stream, "\n flight to %s%s%s took off!", BLUE, f->destination, BLACK);
     if (secure) {
-        // it's the secure flight, remove it without freeing it
+        /* it's the secure flight, remove it without freeing it */
         take_object(fid);
-        // and de-route the secure cart
+        /* and de-route the secure cart */
         heavy_cart.d.cart.flight = INVALID_ID;
     } else {
         strfree_no_oom(f->destination);
@@ -423,10 +448,12 @@ int printf_arginfo_takeoff(UNUSED const struct printf_info *info, UNUSED size_t 
     return 1;
 }
 
+#define MAX_STATUS_IDS 10
+
 void cmd_status(char *args)
 {
     /* parse ids */
-    unsigned ids[10] = {0};
+    unsigned ids[MAX_STATUS_IDS] = {0};
     int read = 0;
     size_t n;
     char *argctx;
@@ -455,13 +482,15 @@ int printf_status(FILE *stream, UNUSED const struct printf_info *info, const voi
     for (int i = 0; i < info->width; i++) {
         if (i > 0)
             written += fprintf(stream, "\n\n ");
-        // ID has already been validated, just get the object
+
+        /* ID has already been validated, just get the object */
         struct object *obj = get_object(ids[i], false);
         VERBOSE_PRINT("[o=%p d=%p]", obj, &obj->d);
         switch(obj->type) {
             case BAGGAGE: {
                 const struct baggage *b = &obj->d.baggage;
-                written += fprintf(stream, b->description, ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial but heh */
+                written += vulnerable_fprintf(stream, MAX_STATUS_IDS - i - 1, b->description,
+                    ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial :-/ */
                 if (b->cart == INVALID_ID)
                     written += fprintf(stream, "\n  cart: N/A");
                 else
@@ -473,7 +502,8 @@ int printf_status(FILE *stream, UNUSED const struct printf_info *info, const voi
 
             case CART: {
                 const struct cart *c = &obj->d.cart;
-                written += fprintf(stream, c->designation, ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial but heh */
+                written += vulnerable_fprintf(stream, MAX_STATUS_IDS - i - 1, c->designation,
+                    ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial :-/ */
                 if (c->flight == INVALID_ID)
                     written += fprintf(stream, "\n  flight: N/A");
                 else
@@ -533,7 +563,7 @@ int printguard_n_specifier_info(UNUSED const struct printf_info *info, UNUSED si
 
 int main(UNUSED int argc, UNUSED char *argv[])
 {
-    // disable colors if not printing to tty
+    /* disable colors if not printing to tty */
     if (!isatty(1))
         RED = BLUE = GREEN = BLACK = "";
 
@@ -569,13 +599,20 @@ int main(UNUSED int argc, UNUSED char *argv[])
     secure_flight.type = FLIGHT;
     secure_flight.d.flight.destination = SECURE_FLIGHT_DEST;
 
+    if (isatty(1))
+        printf("%s", banner_color);
+    else
+        printf("%s", banner_bw);
+    printf("Welcome to this computerized Airport Routing System Endpoint!\n\n\n");
+
     char *line = NULL;
     size_t linelen = 0;
     while (!feof(stdin) && !ferror(stdin)) {
+        printf("> ");
         ssize_t len = getline(&line, &linelen, stdin);
         if (len < 0)
             continue;
-        // there may not be a newline at eof
+        /* there may not be a newline at eof */
         if (line[len-1] == '\n')
             line[len-1] = '\0';
 
@@ -602,10 +639,10 @@ int main(UNUSED int argc, UNUSED char *argv[])
 
         commands[i].fn(arg);
     }
-    // free getline buffer
+    /* free getline buffer */
     free(line);
 
-    // free the flag
+    /* free the flag */
     free(flag_contents);
 
     return ferror(stdin) ? EXIT_FAILURE : EXIT_SUCCESS;

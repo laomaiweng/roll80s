@@ -1,4 +1,4 @@
-BMS2000 -- the computerized Baggage Management System
+ARS2000 -- the computerized Airport Routing System
 
 
 secured with military-grade hacking protection by PrintGuard™
@@ -15,5 +15,5 @@ commands:
 * `route CART FLIGHT`: assign cart id _CART_ to flight id _FLIGHT_
 * `takeoff FLIGHT`: load all baggage from carts assigned to flight id _FLIGHT_ onto the aircraft
                     all baggage will go through the advanced BS (Baggage Screening) procedure (except on special secure flights)
-                    all loaded baggage, as well as the departing flight, will be removed from the BMS
+                    all loaded baggage, as well as the departing flight, will be removed from the ARS
 * `status ID ...`: print the status for various ids

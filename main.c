@@ -3,6 +3,7 @@
 #define _GNU_SOURCE
 #include <printf.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -177,6 +178,12 @@ struct object* get_typed_object(unsigned id, enum type type, bool send_errors)
     return object;
 }
 
+bool is_static_object(unsigned id)
+{
+    struct object *obj = get_object(id, false);
+    return obj == &flag_baggage || obj == &heavy_cart || obj == &secure_flight;
+}
+
 struct object* take_object(unsigned id)
 {
     size_t i = id-1u; /* overflow is defined, and handled */
@@ -299,11 +306,17 @@ void cmd_put(char *args)
 
 int printf_put(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
 {
-    /* IDs have already been validated, just get the objects */
+    /* don't check the object types, we want confusions */
     unsigned bid = *(unsigned*)args[0];
-    struct baggage *b = &get_object(bid, false)->d.baggage;
+    struct object *obj = get_object(bid, false);
+    if (obj == NULL)
+        return fprintf(stream, "missing baggage ID");
+    struct baggage *b = &obj->d.baggage;
     unsigned cid = *(unsigned*)args[1];
-    struct cart *c = &get_object(cid, false)->d.cart;
+    obj = get_object(cid, false);
+    if (obj == NULL)
+        return fprintf(stream, "missing cart ID");
+    struct cart *c = &obj->d.cart;
 
     if (b->weight > c->capacity) {
         return fprintf(stream, "baggage exceeds remaining cart capacity!");
@@ -339,11 +352,17 @@ void cmd_route(char *args)
 
 int printf_route(FILE *stream, UNUSED const struct printf_info *info, const void *const *args)
 {
-    /* IDs have already been validated, just get the objects */
+    /* don't check the object types, we want confusions */
     unsigned cid = *(unsigned*)args[0];
-    struct cart *c = &get_object(cid, false)->d.cart;
+    struct object *obj = get_object(cid, false);
+    if (obj == NULL)
+        return fprintf(stream, "missing cart ID");
+    struct cart *c = &obj->d.cart;
     unsigned fid = *(unsigned*)args[1];
-    struct flight *f = &get_object(fid, false)->d.flight;
+    obj = get_object(fid, false);
+    if (obj == NULL)
+        return fprintf(stream, "missing flight ID");
+    struct flight *f = &obj->d.flight;
 
     /* prevent re-routing the secure cart */
     if (c == &heavy_cart.d.cart)
@@ -378,14 +397,17 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
 {
     /* ID has already been validated, just get the object */
     unsigned fid = *(unsigned*)args[0];
-    struct flight *f = &get_object(fid, false)->d.flight;
+    struct object *obj = get_object(fid, false);
+    if (obj == NULL)
+        return fprintf(stream, "missing flight ID");
+    struct flight *f = &obj->d.flight;
     bool secure = f == &secure_flight.d.flight;
     int written = fprintf(stream, "loading baggages onto %sflight to %s%s%s", secure ? "secure " : "", BLUE, f->destination, BLACK);
 
     /* loop over all objects to find baggages for this flight */
     size_t count = 0;
     for (unsigned id = MIN_ID; id <= MAX_ID; id++) {
-        struct object *obj = get_typed_object(id, BAGGAGE, false);
+        obj = get_typed_object(id, BAGGAGE, false);
         if (obj == NULL)
             continue;
         struct baggage *b = &obj->d.baggage;
@@ -409,8 +431,8 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
 
         c->capacity += b->weight;
 
-        if (b == &flag_baggage.d.baggage) {
-            /* it's the flag baggage, remove it without freeing it */
+        if (is_static_object(id)) {
+            /* it's a static object (normally the flag baggage), remove it without freeing it */
             take_object(id);
         } else {
             strfree_no_oom(b->description);
@@ -426,8 +448,8 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
     //      or leave it as a vuln / vuln helper?
 
     written += fprintf(stream, "\n flight to %s%s%s took off!", BLUE, f->destination, BLACK);
-    if (secure) {
-        /* it's the secure flight, remove it without freeing it */
+    if (is_static_object(fid)) {
+        /* it's a static object (normally the secure flight), remove it without freeing it */
         take_object(fid);
         /* and de-route the secure cart */
         heavy_cart.d.cart.flight = INVALID_ID;
@@ -464,9 +486,6 @@ void cmd_status(char *args)
             reply_error("bad id: %s", curarg);
             return;
         }
-        /* ensure an object is present */
-        if (get_object(ids[n], true) == NULL)
-            return;
         curarg = strtok_r(NULL, " ", &argctx);
     }
     VERBOSE_PRINT("parsed %zu ids", n);
@@ -481,14 +500,19 @@ int printf_status(FILE *stream, UNUSED const struct printf_info *info, const voi
     int written = 0;
     for (int i = 0; i < info->width; i++) {
         if (i > 0)
-            written += fprintf(stream, "\n\n ");
+            written += fprintf(stream, "\n");
 
-        /* ID has already been validated, just get the object */
         struct object *obj = get_object(ids[i], false);
         VERBOSE_PRINT("[o=%p d=%p]", obj, &obj->d);
+        if (obj == NULL) {
+            written += fprintf(stream, "\n %u: [n/a]\n  ", ids[i]);
+            continue;
+        }
+
         switch(obj->type) {
             case BAGGAGE: {
                 const struct baggage *b = &obj->d.baggage;
+                written += fprintf(stream, "\n %u: [baggage]\n  ", ids[i]);
                 written += vulnerable_fprintf(stream, MAX_STATUS_IDS - i - 1, b->description,
                     ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial :-/ */
                 if (b->cart == INVALID_ID)
@@ -502,6 +526,7 @@ int printf_status(FILE *stream, UNUSED const struct printf_info *info, const voi
 
             case CART: {
                 const struct cart *c = &obj->d.cart;
+                written += fprintf(stream, "\n %u: [cart]\n  ", ids[i]);
                 written += vulnerable_fprintf(stream, MAX_STATUS_IDS - i - 1, c->designation,
                     ids[i+1], ids[i+2], ids[i+3], ids[i+4], ids[i+5], ids[i+6], ids[i+7], ids[i+8], ids[i+9]); /* artificial :-/ */
                 if (c->flight == INVALID_ID)
@@ -515,6 +540,7 @@ int printf_status(FILE *stream, UNUSED const struct printf_info *info, const voi
             case FLIGHT: {
                 bool secure = obj == &secure_flight;
                 const struct flight *f = &obj->d.flight;
+                written += fprintf(stream, "\n %u: [flight]\n  ", ids[i]);
                 written += fprintf(stream, "flight to %s%s%s", BLUE, f->destination, BLACK);
                 written += fprintf(stream, "\n  secure: %s%s%s", BLUE, secure ? "yes" : "no", BLACK);
                 break;

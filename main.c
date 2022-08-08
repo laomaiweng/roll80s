@@ -431,7 +431,28 @@ int printf_takeoff(FILE *stream, UNUSED const struct printf_info *info, const vo
 
         c->capacity += b->weight;
 
-        if (is_static_object(id)) {
+        if (id == fid) {
+            /* special case where the vuln was used and a baggage (possibly the flag baggage) was routed to itself, then made to take off
+             * found through fuzzing with AFL
+             * e.g.:
+             *      -> baggage bag
+             *         ID 5: BAGGAGE cart=INVALID
+             *      -> cart %R
+             *         ID 6: CART
+             *      -> status 6 5 5                 # triggers the vuln to route 5 (as a CART) to 5 (as a FLIGHT)
+             *         ID 5: BAGGAGE cart=5
+             *      -> cart %T
+             *         ID 7: CART
+             *      -> status 7 5                   # triggers the vuln to make 5 (as a FLIGHT) take off
+             *                                      # works since 5 (as a BAGGAGE) has cart=5
+             *                                      # and 5 (as a CART) has flight=5
+             *                                      # which is the "flight" being made to take off
+             *
+             * if this happens we can't take/free the baggage here, else it will UAF when trying to free the flight
+             */
+            // nothing to do, just don't free the baggage
+            VERBOSE_PRINT("not freeing self-referencing baggage/flight %u\n", id);
+        } else if (is_static_object(id)) {
             /* it's a static object (normally the flag baggage), remove it without freeing it */
             take_object(id);
         } else {

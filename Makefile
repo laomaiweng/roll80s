@@ -5,7 +5,7 @@ override CFLAGS += -Wall -Wextra -std=gnu11
 release: CFLAGS += -O3
 release: $(BIN)
 
-debug: CFLAGS += -O0 -ggdb3 -DVERBOSE
+debug: CFLAGS += -O0 -ggdb3 -DVERBOSE -fsanitize=address
 debug: $(BIN)
 
 afl: CC=afl-cc

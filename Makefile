@@ -1,5 +1,6 @@
 BIN = ars2000
 SRC = main.c
+HDR = banner.h
 override CFLAGS += -Wall -Wextra -std=gnu11
 
 release: CFLAGS += -O3
@@ -12,7 +13,7 @@ afl: CC=afl-cc
 afl: BIN=ars2000-afl
 afl: release
 
-$(BIN): $(SRC)
+$(BIN): $(SRC) $(HDR)
 	$(CC) -o $(BIN) $(CFLAGS) $(LDFLAGS) $(SRC)
 
 clean:

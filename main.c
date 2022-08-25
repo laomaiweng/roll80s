@@ -650,7 +650,10 @@ int main(UNUSED int argc, UNUSED char *argv[])
         printf("%s", banner_color);
     else
         printf("%s", banner_bw);
-    printf("Welcome to this computerized Airport Routing System Endpoint!\n\n\n");
+    printf("                                        +------------------------+\n"
+           "                                        | secured by PrintGuard™ |\n"
+           "                                        +------------------------+\n\n\n"
+           "Welcome to this computerized Airport Routing System Endpoint!\n\n\n");
 
     char *line = NULL;
     size_t linelen = 0;

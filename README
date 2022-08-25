@@ -17,3 +17,62 @@ commands:
                     all baggage will go through the advanced BS (Baggage Screening) procedure (except on special secure flights)
                     all loaded baggage, as well as the departing flight, will be removed from the ARS
 * `status ID ...`: print the status for various ids
+
+
+
+
+sample session:
+
+```
+> flight Paris
+msg: flight announced: Paris
+id: 4
+
+> cart C4
+msg: cart ready: C4
+id: 5
+
+> baggage B22-183497
+msg: baggage checkin: B22-183497
+id: 6
+
+> baggage B22-183498
+msg: baggage checkin: B22-183498
+id: 7
+
+> put 6 5
+msg: baggage B22-183497 successfully put onto cart C4
+
+> put 7 5
+msg: baggage B22-183498 successfully put onto cart C4
+
+> route 5 4
+msg: cart C4 routed to flight for Paris
+
+> status 4 5 6 7
+msg: 
+ 4: [flight]
+  flight to Paris
+  secure: no
+
+ 5: [cart]
+  C4
+  flight: 4
+  capacity: 8
+
+ 6: [baggage]
+  B22-183497
+  cart: 5
+  weight: 1
+
+ 7: [baggage]
+  B22-183498
+  cart: 5
+  weight: 1
+
+> takeoff 4
+msg: loading baggages onto flight to Paris
+ screening baggage B22-183497 contents: clothes
+ screening baggage B22-183498 contents: wine
+ flight to Paris took off!
+```

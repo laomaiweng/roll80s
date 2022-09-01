@@ -610,9 +610,11 @@ int printguard_n_specifier_info(UNUSED const struct printf_info *info, UNUSED si
 
 int main(UNUSED int argc, UNUSED char *argv[])
 {
-    /* disable colors if not printing to tty */
-    if (!isatty(1))
+    /* disable colors & buffering if not printing to tty */
+    if (!isatty(1)) {
         RED = BLUE = GREEN = BLACK = "";
+        setbuf(stdout, NULL);
+    }
 
     if (register_printf_specifier('P', printf_put, printf_arginfo_put) ||
         register_printf_specifier('R', printf_route, printf_arginfo_route) ||

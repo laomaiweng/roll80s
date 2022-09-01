@@ -121,7 +121,6 @@ struct object {
 static const char *dummy_contents[8] = {"clothes", "dirty clothes", "electronics", "wine", "beach items", "books", "souvenirs", "a sedated cat"};
 
 #define FLAG_ENV "FLAG"
-#define FLAG_FMT "ECW{%s}"
 
 static struct object flag_baggage;
 static struct object heavy_cart;
@@ -628,17 +627,12 @@ int main(UNUSED int argc, UNUSED char *argv[])
     const char *flag_env = getenv(FLAG_ENV);
     if (flag_env == NULL)
         flag_env = "flag";
-    char *flag_contents;
-    if (asprintf(&flag_contents, FLAG_FMT, flag_env) == -1) {
-        perror("internal error");
-        return 1;
-    }
 
     flag_baggage.type = BAGGAGE;
     flag_baggage.d.baggage.description = FLAG_BAGGAGE_DESC;
     flag_baggage.d.baggage.cart = INVALID_ID;
     flag_baggage.d.baggage.weight = FLAG_BAGGAGE_WEIGHT;
-    flag_baggage.d.baggage.contents = flag_contents;
+    flag_baggage.d.baggage.contents = flag_env;
 
     heavy_cart.type = CART;
     heavy_cart.d.cart.designation = HEAVY_CART_DESIG;
@@ -693,9 +687,6 @@ int main(UNUSED int argc, UNUSED char *argv[])
     }
     /* free getline buffer */
     free(line);
-
-    /* free the flag */
-    free(flag_contents);
 
     return ferror(stdin) ? EXIT_FAILURE : EXIT_SUCCESS;
 }

@@ -1,27 +1,29 @@
-ARS2000 -- the computerized Airport Routing System
+                 +======================================================+
+                 |  ARS2000 -- the computerized Airport Routing System  |
+                 +======================================================+
 
 
-secured with military-grade hacking protection by PrintGuard™
+Secured with military-grade hacking protection by PrintGuard®™.
 
 
 
 
-commands:
+Operator commands:
 
-* `baggage DESCRIPTION`: register a new piece of baggage (returns its id)
-* `cart DESIGNATION`: register a new cart to carry baggage to an aircraft (returns its id)
-* `flight DESTINATION`: register a new flight (returns its id)
-* `put BAGGAGE CART`: put baggage id _BAGGAGE_ onto cart id _CART_
-* `route CART FLIGHT`: assign cart id _CART_ to flight id _FLIGHT_
-* `takeoff FLIGHT`: load all baggage from carts assigned to flight id _FLIGHT_ onto the aircraft
+* `baggage DESCRIPTION`: register a new piece of baggage (returns its ID)
+* `cart DESIGNATION`: register a new cart to carry baggage to an aircraft (returns its ID)
+* `flight DESTINATION`: register a new flight (returns its ID)
+* `put BAGGAGE CART`: put baggage ID _BAGGAGE_ onto cart ID _CART_
+* `route CART FLIGHT`: assign cart ID _CART_ to flight ID _FLIGHT_
+* `takeoff FLIGHT`: load all baggage from carts assigned to flight ID _FLIGHT_ onto the aircraft
                     all baggage will go through the advanced BS (Baggage Screening) procedure (except on special secure flights)
                     all loaded baggage, as well as the departing flight, will be removed from the ARS
-* `status ID ...`: print the status for various ids
+* `status ID ...`: print the status for various IDs
 
 
 
 
-sample session:
+Sample session:
 
 ```
 > flight Paris

@@ -646,9 +646,12 @@ int main(UNUSED int argc, UNUSED char *argv[])
         printf("%s", banner_color);
     else
         printf("%s", banner_bw);
-    printf("                                        +------------------------+\n"
+    printf("    [v1.1]\n"
+           "                                        +------------------------+\n"
            "                                        | secured by PrintGuard™ |\n"
-           "                                        +------------------------+\n\n\n"
+           "                                        +------------------------+\n\n"
+           "/!\\ PrintGuard™ cannot guarantee military-grade printf protection\n"
+           "/!\\ with custom specifiers!\n\n\n"
            "Welcome to this computerized Airport Routing System Endpoint!\n\n\n");
 
     char *line = NULL;
